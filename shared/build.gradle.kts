@@ -6,6 +6,9 @@ plugins {
     alias(libs.plugins.androidLibrary)
 }
 
+// M1/M2 Mac のシミュレーターを使う場合は `true`
+val enableM1Simulator = true
+
 kotlin {
     androidTarget {
         @OptIn(ExperimentalKotlinGradlePluginApi::class)
@@ -13,11 +16,11 @@ kotlin {
             jvmTarget.set(JvmTarget.JVM_11)
         }
     }
-    
-    listOf(
-        iosX64(),
+
+    listOfNotNull(
+        iosX64().takeIf { !enableM1Simulator },
         iosArm64(),
-        iosSimulatorArm64()
+        iosSimulatorArm64().takeIf { enableM1Simulator }
     ).forEach { iosTarget ->
         iosTarget.binaries.framework {
             baseName = "Shared"
@@ -67,6 +70,38 @@ kotlin {
             iosX64Test.dependsOn(this)
             iosArm64Test.dependsOn(this)
             iosSimulatorArm64Test.dependsOn(this)
+        }
+    }
+}
+
+// ✅ `assembleXCFramework` を有効化
+tasks.register("assembleXCFramework") {
+    dependsOn("linkReleaseFrameworkIosArm64",
+        "linkReleaseFrameworkIosSimulatorArm64")
+    if (!enableM1Simulator) {
+        dependsOn("linkReleaseFrameworkIosX64")
+    }
+    doLast {
+        val outputDir = project.layout.buildDirectory.get().asFile.resolve("XCFrameworks")
+        outputDir.mkdirs()
+
+        val command = mutableListOf(
+            "xcodebuild",
+            "-create-xcframework",
+            "-framework", project.layout.buildDirectory.get().asFile.resolve("bin/iosArm64/releaseFramework/Shared.framework").absolutePath,
+            "-framework", project.layout.buildDirectory.get().asFile.resolve("bin/iosSimulatorArm64/releaseFramework/Shared.framework").absolutePath
+        )
+
+        if (!enableM1Simulator) {
+            command.add("-framework")
+            command.add(project.layout.buildDirectory.get().asFile.resolve("bin/iosX64/releaseFramework/Shared.framework").absolutePath)
+        }
+
+        command.add("-output")
+        command.add(outputDir.resolve("Shared.xcframework").absolutePath)
+
+        exec {
+            commandLine(command)
         }
     }
 }
